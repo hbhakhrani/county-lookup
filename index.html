@@ -220,10 +220,12 @@
         });
         if (parsed.zip) params.set('zip', parsed.zip);
 
-        const res = await fetch(
-          `https://geocoding.geo.census.gov/geocoder/geographies/address?${params}`
-        );
-        if (!res.ok) throw new Error(`Census API returned HTTP ${res.status}`);
+        const apiUrl  = `https://geocoding.geo.census.gov/geocoder/geographies/address?${params}`;
+        // Census API doesn't send CORS headers, so proxy through corsproxy.io
+        const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(apiUrl)}`;
+
+        const res = await fetch(proxyUrl);
+        if (!res.ok) throw new Error(`Request failed (HTTP ${res.status})`);
 
         const data    = await res.json();
         const matches = data?.result?.addressMatches;
@@ -239,8 +241,6 @@
           flash('Address matched but county data was not returned.', 'no-match');
           return;
         }
-
-        const apiUrl = `https://geocoding.geo.census.gov/geocoder/geographies/address?${params}`;
         result.className = 'result success';
         result.innerHTML = `
           <div class="county-name">${counties[0].NAME}</div>
