@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>County Lookup</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+      padding: 36px;
+      width: 100%;
+      max-width: 480px;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      font-weight: 600;
+      color: #111;
+      margin-bottom: 6px;
+    }
+
+    p.subtitle {
+      font-size: 0.875rem;
+      color: #666;
+      margin-bottom: 28px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: #444;
+      margin-bottom: 5px;
+    }
+
+    .field {
+      margin-bottom: 16px;
+    }
+
+    input {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1.5px solid #ddd;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      color: #111;
+      transition: border-color 0.15s;
+      outline: none;
+    }
+
+    input:focus { border-color: #4f46e5; }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 80px;
+      gap: 12px;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #4f46e5;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 500;
+      cursor: pointer;
+      margin-top: 4px;
+      transition: background 0.15s;
+    }
+
+    button:hover { background: #4338ca; }
+    button:disabled { background: #a5b4fc; cursor: not-allowed; }
+
+    .result {
+      margin-top: 24px;
+      padding: 18px;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      display: none;
+    }
+
+    .result.success {
+      background: #f0fdf4;
+      border: 1.5px solid #86efac;
+      color: #166534;
+    }
+
+    .result.error {
+      background: #fef2f2;
+      border: 1.5px solid #fca5a5;
+      color: #991b1b;
+    }
+
+    .result.no-match {
+      background: #fffbeb;
+      border: 1.5px solid #fcd34d;
+      color: #92400e;
+    }
+
+    .county-name {
+      font-size: 1.3rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .matched-address {
+      font-size: 0.8rem;
+      opacity: 0.75;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>County Lookup</h1>
+    <p class="subtitle">Enter an address to find which county it's in (via US Census Bureau)</p>
+
+    <div class="field">
+      <label for="street">Street address</label>
+      <input id="street" type="text" placeholder="21523 Santa Clara Dr" autocomplete="street-address" />
+    </div>
+
+    <div class="field">
+      <label for="city">City</label>
+      <input id="city" type="text" placeholder="Katy" autocomplete="address-level2" />
+    </div>
+
+    <div class="row field">
+      <div>
+        <label for="state">State</label>
+        <input id="state" type="text" placeholder="TX" maxlength="2" autocomplete="address-level1" />
+      </div>
+      <div>
+        <label for="zip">ZIP</label>
+        <input id="zip" type="text" placeholder="77450" maxlength="5" inputmode="numeric" autocomplete="postal-code" />
+      </div>
+    </div>
+
+    <button id="btn" onclick="lookup()">Look up county</button>
+
+    <div class="result" id="result"></div>
+  </div>
+
+  <script>
+    // Allow pressing Enter in any field to submit
+    document.querySelectorAll('input').forEach(el => {
+      el.addEventListener('keydown', e => { if (e.key === 'Enter') lookup(); });
+    });
+
+    async function lookup() {
+      const street = document.getElementById('street').value.trim();
+      const city   = document.getElementById('city').value.trim();
+      const state  = document.getElementById('state').value.trim();
+      const zip    = document.getElementById('zip').value.trim();
+      const btn    = document.getElementById('btn');
+      const result = document.getElementById('result');
+
+      if (!street) { flash('Please enter a street address.', 'error'); return; }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Looking up…';
+      result.style.display = 'none';
+
+      try {
+        const params = new URLSearchParams({
+          street, city, state,
+          benchmark: '2020',
+          vintage: '2020',
+          format: 'json',
+        });
+        if (zip) params.set('zip', zip);
+
+        const res = await fetch(
+          `https://geocoding.geo.census.gov/geocoder/geographies/address?${params}`
+        );
+
+        if (!res.ok) throw new Error(`Census API returned HTTP ${res.status}`);
+
+        const data = await res.json();
+        const matches = data?.result?.addressMatches;
+
+        if (!matches || matches.length === 0) {
+          flash('No match found. Try adding a ZIP code or check the spelling.', 'no-match');
+          return;
+        }
+
+        const match = matches[0];
+        const counties = match.geographies?.Counties;
+        if (!counties || counties.length === 0) {
+          flash('Address matched but county data was not returned.', 'no-match');
+          return;
+        }
+
+        const county = counties[0].NAME;
+        const matched = match.matchedAddress;
+
+        result.className = 'result success';
+        result.innerHTML = `
+          <div class="county-name">${county}</div>
+          <div class="matched-address">Matched: ${matched}</div>
+        `;
+        result.style.display = 'block';
+
+      } catch (err) {
+        flash(`Error: ${err.message}`, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Look up county';
+      }
+    }
+
+    function flash(msg, type) {
+      const result = document.getElementById('result');
+      result.className = `result ${type}`;
+      result.textContent = msg;
+      result.style.display = 'block';
+    }
+  </script>
+</body>
+</html>
