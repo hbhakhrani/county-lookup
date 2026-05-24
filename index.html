@@ -179,7 +179,7 @@
 
         const jsonpUrl = `https://geocoding.geo.census.gov/geocoder/geographies/onelineaddress?${params}`;
         // JSON link for the "Census API response" button — swap out JSONP params
-        const jsonUrl = `https://geocoding.geo.census.gov/geocoder/geographies/onelineaddress?address=${encodeURIComponent(address)}&benchmark=Public_AR_Current&vintage=Current_Current&format=json`;
+        const jsonUrl = `https://geocoding.geo.census.gov/geocoder/geographies/onelineaddress?address=${encodeURIComponent(address)}&benchmark=Public_AR_Current&vintage=Current_Current`;
 
         const script = document.createElement('script');
         const timer  = setTimeout(() => {
