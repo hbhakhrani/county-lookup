@@ -151,7 +151,7 @@
         placeholder="21523 Santa Clara Dr, Katy, TX 77450"
         autocomplete="street-address"
       />
-      <p class="hint">Format: Street, City, State ZIP &nbsp;—&nbsp; e.g. <em>123 Main St, Houston, TX 77001</em></p>
+      <p class="hint">e.g. <em>123 Main St, Houston, TX 77001</em></p>
     </div>
 
     <button id="btn" onclick="lookup()">Look up county</button>
@@ -164,24 +164,41 @@
       if (e.key === 'Enter') lookup();
     });
 
-    function parseAddress(raw) {
-      // Expected: "Street, City, ST ZIP" or "Street, City, ST"
-      const parts = raw.split(',').map(s => s.trim()).filter(Boolean);
-      if (parts.length < 3) return null;
+    // Census API has no CORS headers — JSONP is their official browser workaround.
+    // Dynamically injects a <script> tag; Census calls our named callback with the data.
+    function censusJsonp(address) {
+      return new Promise((resolve, reject) => {
+        const cbName = '__censusCallback_' + Date.now();
+        const params = new URLSearchParams({
+          address:   address,
+          benchmark: 'Public_AR_Current',
+          vintage:   'Current_Current',
+          format:    'jsonp',
+          callback:  cbName,
+        });
 
-      const street = parts[0];
-      const city   = parts[1];
-      // Last part: "TX 77450" or "TX"
-      const last   = parts[parts.length - 1].trim();
-      const m      = last.match(/^([A-Za-z]{2})\s*(\d{5}(-\d{4})?)?$/);
-      if (!m) return null;
+        const jsonpUrl = `https://geocoding.geo.census.gov/geocoder/geographies/onelineaddress?${params}`;
+        // JSON link for the "Census API response" button — swap out JSONP params
+        const jsonUrl = `https://geocoding.geo.census.gov/geocoder/geographies/onelineaddress?address=${encodeURIComponent(address)}&benchmark=Public_AR_Current&vintage=Current_Current&format=json`;
 
-      return {
-        street,
-        city,
-        state: m[1].toUpperCase(),
-        zip:   m[2] ? m[2].slice(0, 5) : '',
-      };
+        const script = document.createElement('script');
+        const timer  = setTimeout(() => {
+          cleanup();
+          reject(new Error('Request timed out after 12s'));
+        }, 12000);
+
+        window[cbName] = (data) => { cleanup(); resolve({ data, jsonUrl }); };
+
+        function cleanup() {
+          clearTimeout(timer);
+          delete window[cbName];
+          script.remove();
+        }
+
+        script.onerror = () => { cleanup(); reject(new Error('Failed to reach Census API')); };
+        script.src = jsonpUrl;
+        document.head.appendChild(script);
+      });
     }
 
     async function lookup() {
@@ -199,35 +216,11 @@
         return;
       }
 
-      const parsed = parseAddress(raw);
-      if (!parsed) {
-        input.classList.add('invalid');
-        flash('Could not parse the address. Use the format: Street, City, ST ZIP', 'error');
-        return;
-      }
-
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner"></span>Looking up…';
 
       try {
-        const params = new URLSearchParams({
-          street:    parsed.street,
-          city:      parsed.city,
-          state:     parsed.state,
-          benchmark: '2020',
-          vintage:   '2020',
-          format:    'json',
-        });
-        if (parsed.zip) params.set('zip', parsed.zip);
-
-        const apiUrl  = `https://geocoding.geo.census.gov/geocoder/geographies/address?${params}`;
-        // Census API doesn't send CORS headers, proxy through allorigins.win
-        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}`;
-
-        const res = await fetch(proxyUrl);
-        if (!res.ok) throw new Error(`Request failed (HTTP ${res.status})`);
-
-        const data    = await res.json();
+        const { data, jsonUrl } = await censusJsonp(raw);
         const matches = data?.result?.addressMatches;
 
         if (!matches || matches.length === 0) {
@@ -241,18 +234,18 @@
           flash('Address matched but county data was not returned.', 'no-match');
           return;
         }
+
         result.className = 'result success';
-        result.innerHTML = `
-          <div class="county-name">${counties[0].NAME}</div>
-          <div class="matched-address">Matched: ${match.matchedAddress}</div>
-          <div class="matched-address" style="margin-top:10px">
-            <a href="${apiUrl}" target="_blank" rel="noopener" style="color:#166534;word-break:break-all;">Census API response ↗</a>
-          </div>
-        `;
+        result.innerHTML =
+          '<div class="county-name">' + counties[0].NAME + '</div>' +
+          '<div class="matched-address">Matched: ' + match.matchedAddress + '</div>' +
+          '<div class="matched-address" style="margin-top:10px">' +
+          '<a href="' + jsonUrl + '" target="_blank" rel="noopener" style="color:#166534;word-break:break-all;">Census API response ↗</a>' +
+          '</div>';
         result.style.display = 'block';
 
       } catch (err) {
-        flash(`Error: ${err.message}`, 'error');
+        flash('Error: ' + err.message, 'error');
       } finally {
         btn.disabled = false;
         btn.textContent = 'Look up county';
@@ -261,7 +254,7 @@
 
     function flash(msg, type) {
       const result = document.getElementById('result');
-      result.className = `result ${type}`;
+      result.className = 'result ' + type;
       result.textContent = msg;
       result.style.display = 'block';
     }
