@@ -221,8 +221,8 @@
         if (parsed.zip) params.set('zip', parsed.zip);
 
         const apiUrl  = `https://geocoding.geo.census.gov/geocoder/geographies/address?${params}`;
-        // Census API doesn't send CORS headers, so proxy through corsproxy.io
-        const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(apiUrl)}`;
+        // Census API doesn't send CORS headers, proxy through allorigins.win
+        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}`;
 
         const res = await fetch(proxyUrl);
         if (!res.ok) throw new Error(`Request failed (HTTP ${res.status})`);
